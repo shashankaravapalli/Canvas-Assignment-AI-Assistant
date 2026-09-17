@@ -3,7 +3,7 @@ import requests
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 load_dotenv()
 
@@ -157,6 +157,156 @@ async def assignments(ctx):
             "⚠️ Unable to retrieve Canvas assignments."
         )
         print(error)
+
+@bot.command()
+async def today(ctx):
+    await ctx.send("📅 Checking Canvas assignments due today...")
+
+    today_date = datetime.now(timezone.utc).date()
+    today_assignments = []
+
+
+    headers = {
+        "Authorization": f"Bearer {CANVAS_API_TOKEN}"
+    }
+
+    try:
+        courses_response = requests.get(
+            f"{CANVAS_BASE_URL}/api/v1/courses",
+            headers=headers,
+            params={"per_page": 100},
+            timeout=10
+        )
+
+        courses_response.raise_for_status()
+        courses = courses_response.json()
+
+        for course in courses:
+            course_id = course["id"]
+            course_name = course.get("name", "Unknown Course")
+
+            assignments_response = requests.get(
+                f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/assignments",
+                headers=headers,
+                params={"per_page": 100},
+                timeout=10
+            )
+
+            if assignments_response.status_code == 403:
+                print(f"Skipping inaccessabile course: {course_name}")
+                continue
+            assignments = assignments_response.json()
+
+            for assignment in assignments:
+                due_at = assignment.get("due_at")
+
+                if not due_at:
+                    continue
+
+                due_date = datetime.fromisoformat(
+                    due_at.replace("Z", "+00:00")
+                )
+
+                if due_date.date() == today_date:
+                    today_assignments.append({
+                        "course": course_name,
+                        "name": assignment.get("name", "Assignment"),
+                        "due": due_at
+                    })
+
+        if not today_assignments:
+            await ctx.send("🎉 No Canvas assignments due today.")
+        else:
+            await ctx.send(
+                f"📚 You have {len(today_assignments)} assignment(s) due today:"
+        )
+
+            for assignment in today_assignments:
+                due_date = datetime.fromisoformat(
+                    assignment["due"].replace("Z", "+00:00")
+                )
+                due = due_date.strftime("%I:%M %p")
+
+                await ctx.send(
+                    f"📘 **{assignment['course']}**\n"
+                    f"📝 {assignment['name']}\n"
+                    f"⏰ Due: {due}"
+                )
+
+    except Exception as error:
+        await ctx.send("⚠️ Unable to retrieve today's Canvas assignments.")
+        print(error)
+
+
+@bot.command()
+async def week(ctx):
+    await ctx.send("📅 Checking Canvas assignments due in the next 7 days...")
+
+    start_date = datetime.now(timezone.utc)
+    end_date = start_date + timedelta(days=7)
+    week_assignments = []
+
+    headers = {
+        "Authorization": f"Bearer {CANVAS_API_TOKEN}"
+    }
+
+    try:
+        courses_response = requests.get(
+            f"{CANVAS_BASE_URL}/api/v1/courses",
+            headers=headers,
+            params={"enrollment_state": "active",
+                    "per_page": 100
+            },
+            timeout=10
+        )
+
+        courses_response.raise_for_status()
+        courses = courses_response.json()
+
+        for course in courses:
+            course_id = course["id"]
+            course_name = course.get("name", "Unknown Course")
+
+            assignments_response = requests.get(
+                f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/assignments",
+                headers=headers,
+                params={"per_page": 100},
+                timeout=10
+            )
+
+            if assignments_response.status_code == 403:
+                print(f"Skipping inaccessible course: {course_name}")
+                continue
+
+            assignments_response.raise_for_status()
+            assignments = assignments_response.json()
+
+    except Exception as error:
+        await ctx.send(" Unable to retrieve this week's Canvas assignments.")
+        print(error)
+
+@bot.command()
+async def testassignments(ctx):
+    await ctx.send(
+        "🧪 **Demo Assignments**\n\n"
+        "📘 **MATH** — Homework 1 — Sep 20, 2026 11:59 PM\n"
+        "💻 **CS 010B** — Programming Assignment — Sep 25, 2026 11:59 PM\n"
+        "🤖 **Robotics** — Robot Lab — Sep 28, 2026 11:59 PM"
+    )
+
+
+@bot.command(name="commands")
+async def show_commands(ctx):
+    await ctx.send(
+        "🤖 **Canvas Assignment Assistant Commands**\n\n"
+        "📅 `!today` — Show assignments due today\n"
+        "🗓️ `!week` — Show assignments due in the next 7 days\n"
+        "📚 `!assignments` — Show upcoming Canvas assignments\n"
+        "🧪 `!testassignments` — Show sample assignments for testing"
+    )
+
+
+
 
 
 bot.run(DISCORD_TOKEN)
